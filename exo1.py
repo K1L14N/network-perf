@@ -94,3 +94,38 @@ env.process(producer(env, store, lamb, duration))
 
 # Run experiment
 env.run(until=duration)
+
+# #############################
+# ### FOR COMPARISON LAMBD > MU
+# #############################
+# # Setup
+# lamb = 20
+# mu = 15
+# duration = 250
+# env = simpy.Environment()
+
+# # Store create and process init
+# store = simpy.Store(env)
+# env.process(consumer(env, store, mu, duration))
+# env.process(producer(env, store, lamb, duration))
+
+# # Run experiment
+# env.run(until=duration)
+
+# #############################
+# ### FOR COMPARISON LAMBD == MU
+# #############################
+# # Setup
+# lamb = 15
+# mu = 15
+# duration = 250
+# env = simpy.Environment()
+
+# # Store create and process init
+# store = simpy.Store(env)
+# env.process(consumer(env, store, mu, duration))
+# env.process(producer(env, store, lamb, duration))
+
+# # Run experiment
+# env.run(until=duration)
+
