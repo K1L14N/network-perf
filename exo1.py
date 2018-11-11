@@ -5,9 +5,8 @@ import scipy.stats as st
 import matplotlib.pyplot as plt
 
 # Producer
-
-
 def producer(env, store, lamb, duration):
+	print("Process is running, it might take time...\n") # for development, don't mind the warning message...
 	while env.now < duration*0.9:
 		time = random.expovariate(lamb)
 		yield env.timeout(time)
@@ -17,8 +16,6 @@ def producer(env, store, lamb, duration):
 	env.exit()
 
 # Consumer
-
-
 def consumer(env, store, mu, duration):
 	latency_tab = []
 	nb_packet_tab = []
@@ -41,7 +38,7 @@ def consumer(env, store, mu, duration):
 			# LATENCY RELATED
 			latency_tab.append(float(env.now-time_arriving_of_packet_leaving))
 			latency_interval = st.t.interval(0.95, len(latency_tab), loc=np.mean(latency_tab), scale=st.sem(latency_tab))
-			print('Mean of latency %f, interval(95): %s' %(np.mean(latency_tab), latency_interval))
+			# print('Mean of latency %f, interval(95): %s' %(np.mean(latency_tab), latency_interval))
 			# print('Confidence interval of latency (95%): ' + str(latency_interval))
 			latency_plot.append(np.mean(latency_tab))
 			latency_confidence_plot_bottom.append(latency_interval[0])
@@ -50,7 +47,7 @@ def consumer(env, store, mu, duration):
 			# PACKETS RELATED
 			nb_packet_tab.append(len(store.items))
 			nb_packet_interval = st.t.interval(0.95, len(nb_packet_tab)-1, loc=np.mean(nb_packet_tab), scale=st.sem(nb_packet_tab))
-			print('Average number of packets %f, interval(95): %s' %(np.mean(nb_packet_tab), nb_packet_interval))
+			# print('Average number of packets %f, interval(95): %s' %(np.mean(nb_packet_tab), nb_packet_interval))
 			# print('Confidence interval of average of packets (95%): ' + str(nb_packet_interval))
 			packet_plot.append(np.mean(nb_packet_tab))
 			packet_confidence_plot_bottom.append(nb_packet_interval[0])
@@ -63,7 +60,7 @@ def consumer(env, store, mu, duration):
 	plt.plot(latency_confidence_plot_top, "-", color="green", linewidth=1)
 	plt.xlabel("Event")
 	plt.ylabel("Latency")
-	plt.legend(loc="upper right", frameon=False)
+	plt.legend(loc="lower right", frameon=False)
 	plt.title("Latency evolution (lambda %d, mu %d)" % (lamb, mu))
 
 	plt.subplot(212)
@@ -72,17 +69,22 @@ def consumer(env, store, mu, duration):
 	plt.plot(packet_confidence_plot_top, "-", color="green", linewidth=1)
 	plt.xlabel("Event")
 	plt.ylabel("Number of packets")
-	plt.legend(loc="upper right", frameon=False)
+	plt.legend(loc="lower right", frameon=False)
 	plt.title("Evolution of number of packets in queue (lambda %d, mu %d)" % (lamb, mu))
 
+	print("")
+	print('Mean of latency %f, interval(95): %s' %(np.mean(latency_tab), latency_interval))
+	print('Average number of packets %f, interval(95): %s' %(np.mean(nb_packet_tab), nb_packet_interval))
+
 	plt.show()
+
 	env.exit()
 
 
 # Setup
 lamb = 15
 mu = 20
-duration = 25
+duration = 250
 env = simpy.Environment()
 
 # Store create and process init
