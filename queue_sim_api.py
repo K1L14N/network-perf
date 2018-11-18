@@ -135,7 +135,6 @@ class QueuedServer(object):
         self.packet_count = 0
         self.packets_drop = 0
         self.action = env.process(self.run())
-        self.output_buffer = simpy.Store(self.env, capacity=math.inf) # so we can store the output_timestamp
 
     def run(self):
         """ Packet waiting & service loop
@@ -148,9 +147,6 @@ class QueuedServer(object):
             # TODO: add event to process packet
             yield env.timeout(packet.size/self.service_rate)
             packet.output_timestamp = env.now
-
-            self.output_buffer.put(packet)
-            
             if self.destination is not None:
                 self.destination.put(packet)
             self.busy = False
@@ -160,18 +156,31 @@ class QueuedServer(object):
         self.packet_count += 1
         buffer_futur_size = self.buffer_size + packet.size
 
+        # if self.destination is None:
         if self.buffer_max_size is None or buffer_futur_size <= self.buffer_max_size:
             self.buffer_size = buffer_futur_size
-            # TODO: add packet put event in the buffer
+        # TODO: add packet put event in the buffer
             self.buffer.put(packet)
-			
+                    
             if self.debug:
                 print("Packet %d added to queue %s." % (packet.id, self.name))
         else:
             self.packets_drop += 1
             if self.debug:
                 print("Packet %d is discarded by queue %s. Reason: Buffer overflow." % (
-                    packet.id, self.name))
+                packet.id, self.name))
+        # else:
+        #     if self.destination.busy is False and (self.buffer_max_size is None or buffer_futur_size <= self.buffer_max_size):
+        #         self.buffer_size = buffer_futur_size
+        #         # TODO: add packet put event in the buffer
+        #         self.buffer.put(packet)
+                            
+        #         if self.debug:
+        #             print("Packet %d added to queue %s." % (packet.id, self.name))
+        #     else:
+        #         self.packets_drop += 1
+        #         if self.debug:
+        #             print("Packet %d is discarded by queue %s. Reason: Buffer overflow." % (packet.id, self.name))
 
     def attach(self, destination):
         """ Method to set a destination for the serviced packets
@@ -205,12 +214,14 @@ class QueuedServerMonitor(object):
         debug_average_number (bool):
                 If set, displays the average number of packets/bytes depending on count_bytes
         debug_latency (bool):
-                If set, displays the latency of the current queue_server
+                If set, displays the latency of the current queued_server
+        debug_dropped (bool):
+                If set, displays the number of packet dropped by each queued_server
 
 
     """
 
-    def __init__(self, env, queued_server, sample_distribution=lambda: 1, count_bytes=False, debug_average_number = False, debug_latency = False):
+    def __init__(self, env, queued_server, sample_distribution=lambda: 1, count_bytes=False, debug_average_number = False, debug_latency = False, debug_dropped = False):
         self.env = env
         self.queued_server = queued_server
         self.sample_distribution = sample_distribution
@@ -221,6 +232,7 @@ class QueuedServerMonitor(object):
         self.latencies = [] # represents the latencies at each sample distribution time
         self.debug_average_number = debug_average_number
         self.debug_latency = debug_latency
+        self.debug_dropped = debug_dropped
 
     def run(self):
         while True:
@@ -241,15 +253,20 @@ class QueuedServerMonitor(object):
             if self.debug_latency:
                 average_latency = np.mean(self.latencies)
                 print("Average latency: " + str(average_latency))
+                #TODO: Confidence interval 99%
         
             if self.debug_average_number:
                 average_packet_nb = np.mean(self.sizes)
                 print("Average packet number: " + str(average_packet_nb) + " | time of experiment : " + str(self.time_count))
 
+            # Print packet dropped by queued_server
+            if self.debug_dropped:
+                print("Packets dropped by " + str(self.queued_server.name) + ": " + str(self.queued_server.packets_drop))
+
 
 if __name__ == "__main__":
-        # # SIMULATION 1
-        # # Link capacity 64kbps
+        # # SIMULATION TEST
+        # Link capacity 64kbps
         # process_rate= 64000/8 # => 8 kBytes per second
         # # Packet length exponentially distributed with average 400 bytes
         # dist_size= lambda:expovariate(1/400)
@@ -261,20 +278,17 @@ if __name__ == "__main__":
         # # Link Source 1 to Router 1
         # src1.attach(qs1)
         # # Associate a monitor to Router 1
-        # qs1_monitor=QueuedServerMonitor(env,qs1,sample_distribution=lambda:1,count_bytes=False)
+        # qs1_monitor=QueuedServerMonitor(env,qs1,sample_distribution=lambda:1,count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=False)
         # env.run(until=1000)
 
-        # SIMULATION TWO SOURCES WITHOUT COLLISION
+        # # SIMULATION TWO SOURCES WITHOUT COLLISION
         # Link capacity 64kbps
         process_rate = 64000/8  # => 8 kBytes per second
         # Packet length exponentially distributed with average 400 bytes
-
-        def dist_size(): return expovariate(1/400)
+        dist_size= lambda:expovariate(1/400)
         # Packet inter-arrival time exponentially distributed
-
-        def gen_dist1(): return expovariate(7.5)  # 7.5 packets per second
-
-        def gen_dist2(): return expovariate(7.5)  # 7.5 packets per second
+        gen_dist1= lambda:expovariate(7.5)  # 7.5 packets per second
+        gen_dist2= lambda:expovariate(7.5)  # 7.5 packets per second
         env = simpy.Environment()
         src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
                         size_distribution=dist_size, debug=False)
@@ -284,7 +298,7 @@ if __name__ == "__main__":
                                 service_rate=process_rate, debug=False)
         # Link Source 1 to Router 1
         src1.attach(qs1)
-        # Link Source 1 to Router 2
+        # Link Source 2 to Router 1
         src2.attach(qs1)
         # Associate a monitor to Router 1
         qs1_monitor = QueuedServerMonitor(
@@ -295,9 +309,46 @@ if __name__ == "__main__":
                                 service_rate=process_rate, debug=False)
         # Attaching qs1 to qs2 so we catch the packets
         qs1.attach(qs2)
+        # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
         qs2_monitor = QueuedServerMonitor(
                 env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True)
 
         env.run(until=1000)
 
-        # SIMULATION TWO ROUTER WITH COLLISION
+        # # SIMULATION TWO ROUTER WITH COLLISION
+        # process_rate = 64000/8  # => 8 kBytes per second
+        # # Packet length exponentially distributed with average 400 bytes
+        # dist_size= lambda:expovariate(1/400)
+        # # Packet inter-arrival time exponentially distributed
+        # gen_dist1= lambda:expovariate(7.5)  # 7.5 packets per second
+        # gen_dist2= lambda:expovariate(7.5)  # 7.5 packets per second
+        # env = simpy.Environment()
+        # src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
+        #                 size_distribution=dist_size, debug=False)
+        # src2 = Source(env, "Source 2", gen_distribution=gen_dist2,
+        #                 size_distribution=dist_size, debug=False)
+        # qs1 = QueuedServer(env, "Router 1", buffer_max_size=math.inf,
+        #                         service_rate=process_rate, debug=False)
+        # qs2 = QueuedServer(env, "Router 2", buffer_max_size=math.inf,
+        #                         service_rate=process_rate, debug=False)
+        # # Link Source 1 to Router 1
+        # src1.attach(qs1)
+        # # Link Source 2 to Router 2
+        # src2.attach(qs2)
+        
+        # qs3 = QueuedServer(env, "Router 3", buffer_max_size=math.inf,
+        #                         service_rate=process_rate, debug=False)
+        # # Link Router 1 and 2 to Router 3
+        # qs1.attach(qs3)
+        # qs2.attach(qs3)
+        # # Associate a monitor to Router 1
+        # qs1_monitor = QueuedServerMonitor(
+        #         env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
+        # # Associate a monitor to Router 2
+        # qs2_monitor = QueuedServerMonitor(
+        #         env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
+        # # Associate a monitor to Router 3
+        # qs3_monitor = QueuedServerMonitor(
+        #         env, qs3, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
+
+        # env.run(until=1000)
