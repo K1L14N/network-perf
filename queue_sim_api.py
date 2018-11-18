@@ -79,7 +79,7 @@ class Source(object):
             if self.destination is not None:
                 if self.debug:
                     print("%s => %s" % (self.name, self.destination.name))
-                next(self.destination.put(generated_packet))
+                self.destination.put(generated_packet)
             self.packet_count += 1
 
     def attach(self, destination):
@@ -125,7 +125,7 @@ class QueuedServer(object):
         self.env = env
         self.name = name
         # buffer size is limited by put method
-        self.buffer = simpy.Store(self.env)
+        self.buffer = simpy.Store(self.env, capacity=math.inf)
         self.buffer_max_size = buffer_max_size
         self.buffer_size = 0
         self.service_rate = service_rate
@@ -135,6 +135,7 @@ class QueuedServer(object):
         self.packet_count = 0
         self.packets_drop = 0
         self.action = env.process(self.run())
+        self.output_buffer = simpy.Store(self.env, capacity=math.inf) # so we can store the output_timestamp
 
     def run(self):
         """ Packet waiting & service loop
@@ -147,6 +148,9 @@ class QueuedServer(object):
             # TODO: add event to process packet
             yield env.timeout(packet.size/self.service_rate)
             packet.output_timestamp = env.now
+
+            self.output_buffer.put(packet)
+            
             if self.destination is not None:
                 self.destination.put(packet)
             self.busy = False
@@ -159,7 +163,7 @@ class QueuedServer(object):
         if self.buffer_max_size is None or buffer_futur_size <= self.buffer_max_size:
             self.buffer_size = buffer_futur_size
             # TODO: add packet put event in the buffer
-            yield self.buffer.put(packet)
+            self.buffer.put(packet)
 			
             if self.debug:
                 print("Packet %d added to queue %s." % (packet.id, self.name))
@@ -194,11 +198,19 @@ class QueuedServerMonitor(object):
         sizes (list[int]):
                 List of the successive number of elements in queue. Elements can be packet or bytes
                 depending on the attribute count_bytes
-                count_bytes (bool):
-                        If set counts number of bytes instead of number of packets
+        count_bytes (bool):
+                If set counts number of bytes instead of number of packets
+                
+                ADDED:
+        debug_average_number (bool):
+                If set, displays the average number of packets/bytes depending on count_bytes
+        debug_latency (bool):
+                If set, displays the latency of the current queue_server
+
+
     """
 
-    def __init__(self, env, queued_server, sample_distribution=lambda: 1, count_bytes=False):
+    def __init__(self, env, queued_server, sample_distribution=lambda: 1, count_bytes=False, debug_average_number = False, debug_latency = False):
         self.env = env
         self.queued_server = queued_server
         self.sample_distribution = sample_distribution
@@ -206,6 +218,9 @@ class QueuedServerMonitor(object):
         self.sizes = []
         self.time_count = 0
         self.action = env.process(self.run())
+        self.latencies = [] # represents the latencies at each sample distribution time
+        self.debug_average_number = debug_average_number
+        self.debug_latency = debug_latency
 
     def run(self):
         while True:
@@ -216,10 +231,20 @@ class QueuedServerMonitor(object):
             else:
                 total = len(self.queued_server.buffer.items) + self.queued_server.busy
             self.sizes.append(total)
-            # Print average packets number and latency
-        #     print(self.sizes)
-            average_packet_nb = np.mean(self.sizes)
-            print("Average packets number: " + str(average_packet_nb))
+            
+            # Compute the current latency
+            if len(self.queued_server.buffer.items) > 0:
+                current_latency = self.queued_server.buffer.items[len(self.queued_server.buffer.items)-1].output_timestamp - self.queued_server.buffer.items[len(self.queued_server.buffer.items)-1].generation_timestamp
+                self.latencies.append(current_latency)
+            
+            # Print average bytes/number of packets and latency according to the debug parameters
+            if self.debug_latency:
+                average_latency = np.mean(self.latencies)
+                print("Average latency: " + str(average_latency))
+        
+            if self.debug_average_number:
+                average_packet_nb = np.mean(self.sizes)
+                print("Average packet number: " + str(average_packet_nb) + " | time of experiment : " + str(self.time_count))
 
 
 if __name__ == "__main__":
@@ -263,5 +288,16 @@ if __name__ == "__main__":
         src2.attach(qs1)
         # Associate a monitor to Router 1
         qs1_monitor = QueuedServerMonitor(
-                env, qs1, sample_distribution=lambda: 1, count_bytes=False)
+                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False)
+
+        # Create another QueuedServer to "catch" packet output_timestamp
+        qs2 = QueuedServer(env, "Router 1 output", buffer_max_size=math.inf,
+                                service_rate=process_rate, debug=False)
+        # Attaching qs1 to qs2 so we catch the packets
+        qs1.attach(qs2)
+        qs2_monitor = QueuedServerMonitor(
+                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True)
+
         env.run(until=1000)
+
+        # SIMULATION TWO ROUTER WITH COLLISION
