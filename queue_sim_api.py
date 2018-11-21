@@ -146,10 +146,10 @@ class QueuedServer(object):
             self.busy = True
             # TODO: add event to process packet
             yield env.timeout(packet.size/self.service_rate)
-            self.busy = False
             packet.output_timestamp = env.now
             if self.destination is not None:
                 self.destination.put(packet)
+            self.busy = False
 	
     # def put(self, packet):
     def put(self, packet):
@@ -245,7 +245,7 @@ class QueuedServerMonitor(object):
         
             if self.debug_average_number:
                 average_packet_nb = np.mean(self.sizes)
-                print("Average packet number: " + str(average_packet_nb) + " | time of experiment : " + str(self.time_count))
+                print("Average packet number: " + str(average_packet_nb) + " | at time : " + str(self.time_count))
 
             # Print packet dropped by queued_server
             if self.debug_dropped:
@@ -253,10 +253,13 @@ class QueuedServerMonitor(object):
 
 
 if __name__ == "__main__":
-        arg = sys.argv[1]
+        arg = sys.argv[1] # either with or without 
+
+        if arg != "with" or arg != "without":
+                print("unknow parameter, please choose either 'with' or 'without'")
 
         # # SIMULATION TWO SOURCES WITHOUT COLLISION
-        if arg == "with":
+        if arg == "without":
                 # Link capacity 64kbps
                 process_rate = 64000/8  # => 8 kBytes per second
                 # Packet length exponentially distributed with average 400 bytes
@@ -290,7 +293,7 @@ if __name__ == "__main__":
 
                 env.run(until=1000)
 
-        if arg == "without":
+        if arg == "with":
         # # SIMULATION TWO ROUTER WITH COLLISION
                 process_rate = 64000/8  # => 8 kBytes per second
                 # Packet length exponentially distributed with average 400 bytes
@@ -314,9 +317,12 @@ if __name__ == "__main__":
                 
                 qs3 = QueuedServer(env, "Router 3", buffer_max_size=math.inf,
                                         service_rate=process_rate, debug=False)
+                qs4 = QueuedServer(env, "Router 3 output", buffer_max_size=math.inf,
+                                        service_rate=process_rate, debug=False)
                 # Link Router 1 and 2 to Router 3
                 qs1.attach(qs3)
                 qs2.attach(qs3)
+                qs3.attach(qs4)
                 # Associate a monitor to Router 1
                 qs1_monitor = QueuedServerMonitor(
                         env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
@@ -325,7 +331,10 @@ if __name__ == "__main__":
                         env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
                 # Associate a monitor to Router 3
                 qs3_monitor = QueuedServerMonitor(
-                        env, qs3, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
+                        env, qs3, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=False)
+                # Associate a monitor to Router 3 output
+                qs4_monitor = QueuedServerMonitor(
+                        env, qs4, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
 
                 env.run(until=1000)
         
