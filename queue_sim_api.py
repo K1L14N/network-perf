@@ -7,7 +7,7 @@ import math
 from random import expovariate
 import matplotlib.pyplot as plt
 import numpy as np
-
+import sys
 
 class Packet(object):
     """ Packet structure
@@ -146,10 +146,10 @@ class QueuedServer(object):
             self.busy = True
             # TODO: add event to process packet
             yield env.timeout(packet.size/self.service_rate)
+            self.busy = False
             packet.output_timestamp = env.now
             if self.destination is not None:
                 self.destination.put(packet)
-            self.busy = False
 	
     # def put(self, packet):
     def put(self, packet):
@@ -157,31 +157,18 @@ class QueuedServer(object):
         buffer_futur_size = self.buffer_size + packet.size
 
         # TODO: CLEAN THIS ifelse
-        if self.destination is None:
-            if self.buffer_max_size is None or buffer_futur_size <= self.buffer_max_size:
-                self.buffer_size = buffer_futur_size
+        if self.buffer_max_size is None or buffer_futur_size <= self.buffer_max_size:
+            self.buffer_size = buffer_futur_size
         # TODO: add packet put event in the buffer
-                self.buffer.put(packet)
-                    
-                if self.debug:
-                    print("Packet %d added to queue %s." % (packet.id, self.name))
-            else:
-                self.packets_drop += 1
-                if self.debug:
-                    print("Packet %d is discarded by queue %s. Reason: Buffer overflow." % (
-                    packet.id, self.name))
+            self.buffer.put(packet)
+                
+            if self.debug:
+                print("Packet %d added to queue %s." % (packet.id, self.name))
         else:
-            if  self.destination.busy is False and self.buffer_max_size is None or not buffer_futur_size > self.buffer_max_size:
-                # print("haha")
-                self.buffer_size = buffer_futur_size
-                self.buffer.put(packet)
-                if self.debug:
-                    print("Packet %d added to queue %s." % (packet.id, self.name))
-            else:
-                # print("heheeeeeeee")
-                self.packets_drop += 1
-                if self.debug:
-                    print("Packet %d is discarded by queue %s. Reason: Buffer overflow." % (packet.id, self.name))
+            self.packets_drop += 1
+            if self.debug:
+                print("Packet %d is discarded by queue %s. Reason: Buffer overflow." % (
+                packet.id, self.name))
 
     def attach(self, destination):
         """ Method to set a destination for the serviced packets
@@ -266,10 +253,10 @@ class QueuedServerMonitor(object):
 
 
 if __name__ == "__main__":
-        withCol = False
+        arg = sys.argv[1]
 
         # # SIMULATION TWO SOURCES WITHOUT COLLISION
-        if withCol is False:
+        if arg == "with":
                 # Link capacity 64kbps
                 process_rate = 64000/8  # => 8 kBytes per second
                 # Packet length exponentially distributed with average 400 bytes
@@ -303,7 +290,7 @@ if __name__ == "__main__":
 
                 env.run(until=1000)
 
-        else:
+        if arg == "without":
         # # SIMULATION TWO ROUTER WITH COLLISION
                 process_rate = 64000/8  # => 8 kBytes per second
                 # Packet length exponentially distributed with average 400 bytes
