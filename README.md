@@ -36,8 +36,28 @@ $ sudo pip3 install -U simpy matplotlib
 - What is the observed average packet rate ? 
 - What is the 95% confidence interval ?
 
+   
+# Session 2
+
+- The "two routers" problem with and without collision are presented in the slides named "exo2.pdf"
+- The homework is due by the 23/11/18 before midnight.
+
+## FAQ
+
+- Some of you seem to have a problem calling the method ```QueuedServer.put```. Remind that calling a generator in python does not execute its code.
+- As generators are an important concept in SimPy, i suggest that you check this [page] for a quick tutorial. 
+
+## Homework
+
+* Complete the implementation of the queue simulation API
+* Using the API, implement the two routers problem **without collision**. Then, for \lambda_1=\lambda_2= 7.5 packets per second, simulate and compute the following (in the stationary regime):
+    * The average packet rate at the output of both routers. What can you conclude about the sum of two independent Poisson processes ?
+    * The average latency. What is the **99%** confidence interval ?
+* Using the API, implement the two routers problem **with collision**. Then, for \lambda_1=\lambda_2= 7.5 packets per second, simulate and compute the following (in the stationary regime):
+    * The average latency. What is the 99% confidence interval ?
+    * The average packet drop ratio for each router (number of packets received/number of packets sent). What is the **99%** confidence interval ?
+
    [Python3]: <https://www.python.org/>
    [SimPy]: <https://simpy.readthedocs.io/en/latest/contents.html>
    [Matplotlib]: <https://matplotlib.org/>
-   
-   
+   [page]:https://www.programiz.com/python-programming/generator
