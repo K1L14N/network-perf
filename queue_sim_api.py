@@ -8,6 +8,7 @@ from random import expovariate
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
+import scipy.stats as st
 
 class Packet(object):
     """ Packet structure
@@ -163,11 +164,25 @@ class QueuedServer(object):
                 
             if self.debug:
                 print("Packet %d added to queue %s." % (packet.id, self.name))
+        
+            # Remove duplicates
+            self.catch_collision()
+
         else:
             self.packets_drop += 1
             if self.debug:
                 print("Packet %d is discarded by queue %s. Reason: Buffer overflow." % (
                 packet.id, self.name))
+
+    def catch_collision(self):
+        if len(self.buffer.items) > 1:
+                # Precision to centi seconds
+            if int(100*self.buffer.items[0].output_timestamp) == int(100*self.buffer.items[1].output_timestamp):
+                self.buffer.get()
+                self.packets_drop += 1
+                if self.debug:
+                    print("Packet %d is discarded by queue %s. Reason: Collision." % (
+                        self.buffer.items[0].id, self.name))
 
     def attach(self, destination):
         """ Method to set a destination for the serviced packets
@@ -239,16 +254,24 @@ class QueuedServerMonitor(object):
             # Print average bytes/number of packets and latency according to the debug parameters
             if self.debug_latency:
                 average_latency = np.mean(self.latencies)
-                print("Average latency: " + str(average_latency))
-                #TODO: Confidence interval 99%
+                # print("Average latency: " + str(average_latency))
+
+                latency_interval = st.t.interval(0.99, len(self.latencies), loc=np.mean(self.latencies), scale=st.sem(self.latencies))
+                print('Mean of latency %f, interval(99): %s' %(average_latency, latency_interval))
+                
         
             if self.debug_average_number:
                 average_packet_nb = np.mean(self.sizes)
-                print("Average packet number: " + str(average_packet_nb) + " | at time : " + str(self.time_count))
+                # print("Average packet number: " + str(average_packet_nb) + " | at time : " + str(self.time_count))
+
+                nb_packet_interval = st.t.interval(0.99, len(self.sizes)-1, loc=np.mean(self.sizes), scale=st.sem(self.sizes))
+                print('Average number of packets %f, interval(99): %s' %(average_packet_nb, nb_packet_interval))
 
             # Print packet dropped by queued_server
             if self.debug_dropped:
+                print("Packets counted by " + str(self.queued_server.name) + ": " + str(self.queued_server.packet_count))
                 print("Packets dropped by " + str(self.queued_server.name) + ": " + str(self.queued_server.packets_drop))
+                print("Ratio: " + str(int(100*(self.queued_server.packet_count-self.queued_server.packets_drop)/self.queued_server.packet_count)) + "%")
 
 
 if __name__ == "__main__":
@@ -306,9 +329,9 @@ if __name__ == "__main__":
                 src2 = Source(env, "Source 2", gen_distribution=gen_dist2,
                                 size_distribution=dist_size, debug=False)
                 qs1 = QueuedServer(env, "Router 1", buffer_max_size=math.inf,
-                                        service_rate=process_rate, debug=False)
+                                        service_rate=math.inf, debug=False)
                 qs2 = QueuedServer(env, "Router 2", buffer_max_size=math.inf,
-                                        service_rate=process_rate, debug=False)
+                                        service_rate=math.inf, debug=False)
                 # Link Source 1 to Router 1
                 src1.attach(qs1)
                 # Link Source 2 to Router 2
@@ -324,10 +347,10 @@ if __name__ == "__main__":
                 qs3.attach(qs4)
                 # Associate a monitor to Router 1
                 qs1_monitor = QueuedServerMonitor(
-                        env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
+                        env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=False)
                 # Associate a monitor to Router 2
                 qs2_monitor = QueuedServerMonitor(
-                        env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
+                        env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=False)
                 # Associate a monitor to Router 3
                 qs3_monitor = QueuedServerMonitor(
                         env, qs3, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=True)
@@ -337,18 +360,3 @@ if __name__ == "__main__":
 
                 env.run(until=1000)
         
-        # # SIMULATION TEST
-        # Link capacity 64kbps
-        # process_rate= 64000/8 # => 8 kBytes per second
-        # # Packet length exponentially distributed with average 400 bytes
-        # dist_size= lambda:expovariate(1/400)
-        # # Packet inter-arrival time exponentially distributed
-        # gen_dist= lambda:expovariate(15) # 15 packets per second
-        # env= simpy.Environment()
-        # src1= Source(env, "Source 1",gen_distribution=gen_dist,size_distribution=dist_size,debug=False)
-        # qs1= QueuedServer(env,"Router 1", buffer_max_size=math.inf, service_rate=process_rate,debug=False)
-        # # Link Source 1 to Router 1
-        # src1.attach(qs1)
-        # # Associate a monitor to Router 1
-        # qs1_monitor=QueuedServerMonitor(env,qs1,sample_distribution=lambda:1,count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=False)
-        # env.run(until=1000)
