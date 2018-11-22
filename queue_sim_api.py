@@ -156,10 +156,9 @@ class QueuedServer(object):
         self.packet_count += 1
         buffer_futur_size = self.buffer_size + packet.size
 
-        # TODO: CLEAN THIS ifelse
         if self.buffer_max_size is None or buffer_futur_size <= self.buffer_max_size:
             self.buffer_size = buffer_futur_size
-        # TODO: add packet put event in the buffer
+            # TODO: add packet put event in the buffer
             self.buffer.put(packet)
                 
             if self.debug:
@@ -331,7 +330,7 @@ if __name__ == "__main__":
                         env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
                 # Associate a monitor to Router 3
                 qs3_monitor = QueuedServerMonitor(
-                        env, qs3, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=False)
+                        env, qs3, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=True)
                 # Associate a monitor to Router 3 output
                 qs4_monitor = QueuedServerMonitor(
                         env, qs4, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
