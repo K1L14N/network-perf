@@ -149,7 +149,11 @@ class QueuedServer(object):
             yield env.timeout(packet.size/self.service_rate)
             packet.output_timestamp = env.now
             if self.destination is not None:
-                self.destination.put(packet)
+                if self.destination.busy is False:
+                    self.destination.put(packet)
+                else:
+                    self.packets_drop += 1
+                    self.destination.put(packet)
             self.busy = False
 	
     # def put(self, packet):
@@ -166,7 +170,7 @@ class QueuedServer(object):
                 print("Packet %d added to queue %s." % (packet.id, self.name))
         
             # Remove duplicates
-            self.catch_collision()
+        #     self.catch_collision()
 
         else:
             self.packets_drop += 1
@@ -271,7 +275,7 @@ class QueuedServerMonitor(object):
             if self.debug_dropped:
                 print("Packets counted by " + str(self.queued_server.name) + ": " + str(self.queued_server.packet_count))
                 print("Packets dropped by " + str(self.queued_server.name) + ": " + str(self.queued_server.packets_drop))
-                print("Ratio: " + str(int(100*(self.queued_server.packet_count-self.queued_server.packets_drop)/self.queued_server.packet_count)) + "%")
+                print("Ratio transmit/total: " + str(int(100*(self.queued_server.packet_count-self.queued_server.packets_drop)/self.queued_server.packet_count)) + "%")
 
 
 if __name__ == "__main__":
@@ -329,9 +333,9 @@ if __name__ == "__main__":
                 src2 = Source(env, "Source 2", gen_distribution=gen_dist2,
                                 size_distribution=dist_size, debug=False)
                 qs1 = QueuedServer(env, "Router 1", buffer_max_size=math.inf,
-                                        service_rate=math.inf, debug=False)
+                                        service_rate=process_rate, debug=False)
                 qs2 = QueuedServer(env, "Router 2", buffer_max_size=math.inf,
-                                        service_rate=math.inf, debug=False)
+                                        service_rate=process_rate, debug=False)
                 # Link Source 1 to Router 1
                 src1.attach(qs1)
                 # Link Source 2 to Router 2
@@ -347,13 +351,13 @@ if __name__ == "__main__":
                 qs3.attach(qs4)
                 # Associate a monitor to Router 1
                 qs1_monitor = QueuedServerMonitor(
-                        env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=False)
+                        env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
                 # Associate a monitor to Router 2
                 qs2_monitor = QueuedServerMonitor(
-                        env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=False)
+                        env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=True)
                 # Associate a monitor to Router 3
                 qs3_monitor = QueuedServerMonitor(
-                        env, qs3, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=True)
+                        env, qs3, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=False)
                 # Associate a monitor to Router 3 output
                 qs4_monitor = QueuedServerMonitor(
                         env, qs4, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
