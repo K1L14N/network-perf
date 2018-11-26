@@ -97,9 +97,9 @@ class QueuedServer(object):
 
     Attributes:
             env (simpy.Environment):
-            Simulation environment
-    		name (str):
-            Name of the source
+                Simulation environment
+    	name (str):
+                Name of the source
             buffer (simpy.Store):
                     Simpy FIFO queue
             buffer_max_size (int):
@@ -108,8 +108,8 @@ class QueuedServer(object):
                     Current size of the buffer in bytes
             service_rate (float):
                     Server service rate in byte/sec
-    destination (object):
-            Entity that receives the packets from the server
+            destination (object):
+                Entity that receives the packets from the server
             debug (bool):
                     Set to true to activate verbose debug
             busy (bool):
@@ -118,11 +118,13 @@ class QueuedServer(object):
                     Number of packet received
             packet_drop (int):
                     Number of packets dropped
+            channel (Channel):
+                Channel linked with
 
 
     """
 
-    def __init__(self, env, name, buffer_max_size=None, service_rate=1000, debug=False):
+    def __init__(self, env, name, buffer_max_size=None, service_rate=1000, debug=False, channel):
         self.env = env
         self.name = name
         # buffer size is limited by put method
@@ -136,6 +138,7 @@ class QueuedServer(object):
         self.packet_count = 0
         self.packets_drop = 0
         self.action = env.process(self.run())
+        self.channel = channel
 
     def run(self):
         """ Packet waiting & service loop
@@ -277,6 +280,42 @@ class QueuedServerMonitor(object):
                 print("Packets dropped by " + str(self.queued_server.name) + ": " + str(self.queued_server.packets_drop))
                 print("Ratio transmit/total: " + str(int(100*(self.queued_server.packet_count-self.queued_server.packets_drop)/self.queued_server.packet_count)) + "%")
 
+class Channel():
+        """ A channel that aims to manage the packet transmission.
+        It has a state, busy or not and broadcasts this information to its sources
+
+        Attributes:
+        env (simpy.Environment):
+                Simulation environment
+        senders_list (List[QueuedServer]):
+                List of QueuedServers linked
+        service_rate (int):
+                Service rate of the total simulation
+        collision (bool):
+                If true, simulates with collisions else without collisions
+        state (State):
+                The current state of the channel
+        debug (bool):
+                If set, display debug informations
+        """
+
+    def __init__(env, senders_list=[], service_rate, collision, state, debug=False):
+        self.env = env
+        self.senders_list = senders_list
+        self.service_rate = service_rate
+        self.collision = collision
+        self.state = state
+        self.debug = debug
+
+    def add_sender(self, sender):
+        self.senders_list.append(sender)
+
+    def remove_sender(self, sender):
+        self.senders_list.remove(sender)
+
+    def broadcast_collision(self):
+        for sender in self.senders_list:
+            #DO THINGS
 
 if __name__ == "__main__":
         arg = sys.argv[1] # either with or without 
