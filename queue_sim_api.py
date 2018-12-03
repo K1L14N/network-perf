@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sys
 import scipy.stats as st
+from enum import Enum
 
 class Packet(object):
     """ Packet structure
@@ -124,7 +125,7 @@ class QueuedServer(object):
 
     """
 
-    def __init__(self, env, name, buffer_max_size=None, service_rate=1000, debug=False, channel):
+    def __init__(self, env, name, channel, buffer_max_size=None, service_rate=1000, debug=False):
         self.env = env
         self.name = name
         # buffer size is limited by put method
@@ -149,15 +150,17 @@ class QueuedServer(object):
             packet = yield self.buffer.get()
             self.busy = True
             # TODO: add event to process packet
+            self.channel.add_sender(self)
             yield env.timeout(packet.size/self.service_rate)
             packet.output_timestamp = env.now
             if self.destination is not None:
-                if self.destination.busy is False:
+                if self.channel.state == State.IDLE and self.destination.busy is False:
                     self.destination.put(packet)
                 else:
                     self.packets_drop += 1
-                    self.destination.put(packet)
+                #     self.destination.put(packet)
             self.busy = False
+            self.channel.remove_sender(self)
 	
     # def put(self, packet):
     def put(self, packet):
@@ -181,15 +184,15 @@ class QueuedServer(object):
                 print("Packet %d is discarded by queue %s. Reason: Buffer overflow." % (
                 packet.id, self.name))
 
-    def catch_collision(self):
-        if len(self.buffer.items) > 1:
-                # Precision to centi seconds
-            if int(100*self.buffer.items[0].output_timestamp) == int(100*self.buffer.items[1].output_timestamp):
-                self.buffer.get()
-                self.packets_drop += 1
-                if self.debug:
-                    print("Packet %d is discarded by queue %s. Reason: Collision." % (
-                        self.buffer.items[0].id, self.name))
+#     def catch_collision(self):
+#         if len(self.buffer.items) > 1:
+#                 # Precision to centi seconds
+#             if int(100*self.buffer.items[0].output_timestamp) == int(100*self.buffer.items[1].output_timestamp):
+#                 self.buffer.get()
+#                 self.packets_drop += 1
+#                 if self.debug:
+#                     print("Packet %d is discarded by queue %s. Reason: Collision." % (
+#                         self.buffer.items[0].id, self.name))
 
     def attach(self, destination):
         """ Method to set a destination for the serviced packets
@@ -199,6 +202,9 @@ class QueuedServer(object):
         """
         self.destination = destination
 
+class State(Enum):
+    IDLE = "IDLE"
+    BUSY = "BUSY"
 
 class QueuedServerMonitor(object):
     """ A monitor for a QueuedServer. Observes the packets in service and in
@@ -281,31 +287,32 @@ class QueuedServerMonitor(object):
                 print("Ratio transmit/total: " + str(int(100*(self.queued_server.packet_count-self.queued_server.packets_drop)/self.queued_server.packet_count)) + "%")
 
 class Channel():
-        """ A channel that aims to manage the packet transmission.
-        It has a state, busy or not and broadcasts this information to its sources
+    """ A channel that aims to manage the packet transmission.
+    It has a state, busy or not and broadcasts this information to its sources
+    
+    Attributes:
+    env (simpy.Environment):
+            Simulation environment
+    senders_list (List[QueuedServer]):
+            List of QueuedServers linked
+    service_rate (int):
+            Service rate of the total simulation
+    collision (bool):
+            If true, simulates with collisions else without collisions
+    state (State):
+            The current state of the channel, either 
+    debug (bool):
+            If set, display debug informations
+    """
 
-        Attributes:
-        env (simpy.Environment):
-                Simulation environment
-        senders_list (List[QueuedServer]):
-                List of QueuedServers linked
-        service_rate (int):
-                Service rate of the total simulation
-        collision (bool):
-                If true, simulates with collisions else without collisions
-        state (State):
-                The current state of the channel
-        debug (bool):
-                If set, display debug informations
-        """
-
-    def __init__(env, senders_list=[], service_rate, collision, state, debug=False):
+    def __init__(self, env, service_rate, collision, state, senders_list=[], debug=False):
         self.env = env
         self.senders_list = senders_list
         self.service_rate = service_rate
         self.collision = collision
         self.state = state
         self.debug = debug
+        self.action = env.process(self.broadcast_collision())
 
     def add_sender(self, sender):
         self.senders_list.append(sender)
@@ -314,8 +321,14 @@ class Channel():
         self.senders_list.remove(sender)
 
     def broadcast_collision(self):
-        for sender in self.senders_list:
-            #DO THINGS
+        while True:
+            if self.collision and len(self.senders_list) > 1:
+                self.state = State.BUSY
+                if self.debug:
+                    print('Collision detected between [%s]' % ', '.join(map(str, self.senders_list)))
+            else:
+                self.state = State.IDLE
+
 
 if __name__ == "__main__":
         arg = sys.argv[1] # either with or without 
