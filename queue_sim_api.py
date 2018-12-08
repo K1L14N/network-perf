@@ -5,6 +5,7 @@
 import simpy
 import math
 from random import expovariate
+import random
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
@@ -218,11 +219,15 @@ class QueuedServer(object):
 
         """
         while True:
-            # TODO: add event to get packet from buffer
             packet = yield self.buffer.get()
             self.busy = True
-            # TODO: add event to process packet
             self.channel.add_sender(self)
+            if self.channel.state == "BUSY":
+                while self.channel.state == "BUSY":
+                    randPeriod = random.random()*2 #3x2T
+                    if self in self.channel.senders_list is True:
+                        self.channel.remove_sender(self)
+                    yield env.timeout(randPeriod * packet.size/self.service_rate)
             yield env.timeout(packet.size/self.service_rate)
             packet.output_timestamp = env.now
             if self.destination is not None:
@@ -246,7 +251,6 @@ class QueuedServer(object):
 
         if self.buffer_max_size is None or buffer_futur_size <= self.buffer_max_size:
             self.buffer_size = buffer_futur_size
-            # TODO: add packet put event in the buffer
             self.buffer.put(packet)
                 
             if self.debug:
@@ -315,7 +319,6 @@ class Channel(object):
             else:
                 self.state = "IDLE"
 
-
 if __name__ == "__main__":
                 # Link capacity 64kbps
         process_rate = 64000/8  # => 8 kBytes per second
@@ -343,7 +346,7 @@ if __name__ == "__main__":
         
         # Associate a monitor to Router 1
         qs1_monitor = QueuedServerMonitor(
-                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True)
+                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=False)
         # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
         qs2_monitor = QueuedServerMonitor(
                 env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True)
