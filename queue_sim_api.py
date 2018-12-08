@@ -224,9 +224,8 @@ class QueuedServer(object):
             self.channel.add_sender(self)
             if self.channel.state == "BUSY":
                 while self.channel.state == "BUSY":
-                    randPeriod = random.random()*2 #3x2T
-                    if self in self.channel.senders_list is True:
-                        self.channel.remove_sender(self)
+                    randPeriod = random.randint(1, 3)*2 #3x2T ? Don't really know what to choose
+                    self.channel.remove_sender(self)
                     yield env.timeout(randPeriod * packet.size/self.service_rate)
             yield env.timeout(packet.size/self.service_rate)
             packet.output_timestamp = env.now
@@ -306,7 +305,8 @@ class Channel(object):
 
     def remove_sender(self, sender):
         # print("call remove_sender")
-        self.senders_list.remove(sender)
+        if sender in self.senders_list:
+            self.senders_list.remove(sender)
 
     def broadcast_collision(self):
         print("Channel created: " + self.name)
@@ -346,7 +346,7 @@ if __name__ == "__main__":
         
         # Associate a monitor to Router 1
         qs1_monitor = QueuedServerMonitor(
-                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=False, debug_dropped=False)
+                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True)
         # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
         qs2_monitor = QueuedServerMonitor(
                 env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True)
