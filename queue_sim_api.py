@@ -64,7 +64,7 @@ class QueuedServerMonitor(object):
                 If set, displays the number of packet dropped by each queued_server
     """
 
-    def __init__(self, env, queued_server, sample_distribution=lambda: 1, count_bytes=False, debug_average_number = False, debug_latency = False, debug_dropped = False):
+    def __init__(self, env, queued_server, sample_distribution=lambda: 1, count_bytes=False, debug_average_number = False, debug_latency = False, debug_dropped = False, d = 1):
         self.env = env
         self.queued_server = queued_server
         self.sample_distribution = sample_distribution
@@ -76,6 +76,7 @@ class QueuedServerMonitor(object):
         self.debug_dropped = debug_dropped
         self.action = env.process(self.run())
         self.latenciesMonitor = []
+        self.d = d
 
     def run(self):
         while True:
@@ -110,7 +111,7 @@ class QueuedServerMonitor(object):
                 print("Packets counted by " + str(self.queued_server.name) + ": " + str(self.queued_server.packet_count))
                 print("Packets dropped by " + str(self.queued_server.name) + ": " + str(self.queued_server.packets_drop))
                 print("Ratio transmit/total: " + str(int(100*(self.queued_server.packet_count-self.queued_server.packets_drop)/self.queued_server.packet_count)) + "%")
-            if self.time_count == 999:
+            if self.time_count == 999*self.d:
                 print("THE ENDGAME")
                 # return self.latenciesMonitor
                 # plt.plot(latenciesMonitor, "-", color="blue", linewidth=2.5, label="average latency")
@@ -209,7 +210,7 @@ class QueuedServer(object):
                 Channel linked with
     """
 
-    def __init__(self, env, name, channel, buffer_max_size=None, service_rate=1000, debug=False):
+    def __init__(self, env, name, channel, buffer_max_size=None, service_rate=1000, debug=False, d=1):
         self.env = env
         self.name = name
         # buffer size is limited by put method
@@ -224,6 +225,7 @@ class QueuedServer(object):
         self.packets_drop = 0
         self.channel = channel
         self.latencies = []
+        self.d = d
         self.action = env.process(self.run())
 
     def run(self):
@@ -241,7 +243,7 @@ class QueuedServer(object):
                 attempt = 0
                 while self.channel.state == "BUSY":
                     attempt += 1
-                    randPeriod = random.random() * 2 #(K+1)/2 ? Don't really know what to choose
+                    randPeriod = random.random() * self.d #(K+1)/2 ? Don't really know what to choose
                     self.channel.remove_sender(self)
                     yield env.timeout(randPeriod * 400/self.channel.service_rate) #400 is the average lenght of the packets
             packet.output_timestamp = env.now
@@ -335,6 +337,38 @@ class Channel(object):
             else:
                 self.state = "IDLE"
 
+def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d):
+        
+        src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
+                        size_distribution=dist_size, debug=False)
+        src2 = Source(env, "Source 2", gen_distribution=gen_dist2,
+                        size_distribution=dist_size, debug=False)
+        # Create channel
+        ch = Channel(env, "Disney", process_rate, collision=True, state="IDLE", senders_list=[], debug=False)
+        qs1 = QueuedServer(env, "Router 1", ch, buffer_max_size=math.inf,
+                                service_rate=process_rate, debug=False, d=d)
+        qs2 = QueuedServer(env, "Router 2", ch, buffer_max_size=math.inf,
+                           service_rate=process_rate, debug=False, d=d)
+        # Link Source 1 to Router 1
+        src1.attach(qs1)
+        # Link Source 2 to Router 2
+        src2.attach(qs2)
+
+        
+        # Associate a monitor to Router 1
+        qs1_monitor = QueuedServerMonitor(
+                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False, d=d)
+        # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
+        qs2_monitor = QueuedServerMonitor(
+                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False, d=d)
+
+        env.run(until=300*d)
+
+        latenciesMonitor1 = qs1_monitor.latenciesMonitor[len(qs1_monitor.latenciesMonitor) - 1] #final latency of qs1_monitor
+        latenciesMonitor2 = qs2_monitor.latenciesMonitor[len(qs2_monitor.latenciesMonitor) - 1] #final latency of qs2_monitor
+        latenciesMonitor = (latenciesMonitor1+latenciesMonitor2)/2
+        return latenciesMonitor
+
 if __name__ == "__main__":
         # Link capacity 64kbps
         process_rate = 64000/8  # => 8 kBytes per second
@@ -344,36 +378,17 @@ if __name__ == "__main__":
         gen_dist1= lambda:expovariate(7.5)  # 7.5 packets per second
         gen_dist2= lambda:expovariate(7.5)  # 7.5 packets per second
         env = simpy.Environment()
-        src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
-                        size_distribution=dist_size, debug=False)
-        src2 = Source(env, "Source 2", gen_distribution=gen_dist2,
-                        size_distribution=dist_size, debug=False)
-        # Create channel
-        ch = Channel(env, "Disney", process_rate, collision=True, state="IDLE", senders_list=[], debug=False)
-        qs1 = QueuedServer(env, "Router 1", ch, buffer_max_size=math.inf,
-                                service_rate=process_rate, debug=False)
-        qs2 = QueuedServer(env, "Router 2", ch, buffer_max_size=math.inf,
-                           service_rate=process_rate, debug=False)
-        # Link Source 1 to Router 1
-        src1.attach(qs1)
-        # Link Source 2 to Router 2
-        src2.attach(qs2)
 
+        testOfDLatencies = []
+        for d in range(1, 14):
+                latencies = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d)
+                testOfDLatencies.append(latencies)
         
-        # Associate a monitor to Router 1
-        qs1_monitor = QueuedServerMonitor(
-                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True)
-        # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
-        qs2_monitor = QueuedServerMonitor(
-                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True)
+        plt.plot(np.linspace(1, 13, 13), testOfDLatencies, '-o', color="blue", linewidth=2.5, label="average latency")
+        plt.xlabel("d (Upper bound of random interval)")
+        plt.ylabel("Latency (s)")
+        plt.legend(loc="upper left", frameon=False)
+        plt.title("Evolution of latency according to upper bound of random interval")
+        plt.show()
 
-        env.run(until=1000)
 
-        latenciesMonitor = qs2_monitor.latenciesMonitor
-        # plt.plot(latenciesMonitor, "-", color="blue", linewidth=2.5, label="average latency")
-        # plt.xlabel("Time")
-        # plt.ylabel("Latency")
-        # plt.legend(loc="lower right", frameon=False)
-        # plt.title("Latency evolution over time")
-        # plt.show()
-        return latenciesMonitor
