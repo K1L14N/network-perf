@@ -75,6 +75,7 @@ class QueuedServerMonitor(object):
         self.debug_latency = debug_latency
         self.debug_dropped = debug_dropped
         self.action = env.process(self.run())
+        self.latenciesMonitor = []
 
     def run(self):
         while True:
@@ -90,6 +91,8 @@ class QueuedServerMonitor(object):
             if self.debug_latency:
                 latencies = self.queued_server.latencies
                 # print("Average latency: " + str(average_latency))
+
+                self.latenciesMonitor.append(np.mean(latencies))
 
                 latency_interval = st.t.interval(0.99, len(latencies), loc=np.mean(latencies), scale=st.sem(latencies))
                 print('Mean of latency %f, interval(99): %s' %(np.average(latencies), latency_interval))
@@ -107,6 +110,15 @@ class QueuedServerMonitor(object):
                 print("Packets counted by " + str(self.queued_server.name) + ": " + str(self.queued_server.packet_count))
                 print("Packets dropped by " + str(self.queued_server.name) + ": " + str(self.queued_server.packets_drop))
                 print("Ratio transmit/total: " + str(int(100*(self.queued_server.packet_count-self.queued_server.packets_drop)/self.queued_server.packet_count)) + "%")
+            if self.time_count == 999:
+                print("THE ENDGAME")
+                # return self.latenciesMonitor
+                # plt.plot(latenciesMonitor, "-", color="blue", linewidth=2.5, label="average latency")
+                # plt.xlabel("Time")
+                # plt.ylabel("Latency")
+                # plt.legend(loc="lower right", frameon=False)
+                # plt.title("Latency evolution over time")
+                # plt.show()
 
 class Source(object):
     """ Packet generator
@@ -222,12 +234,16 @@ class QueuedServer(object):
             packet = yield self.buffer.get()
             self.busy = True
             self.channel.add_sender(self)
-            if self.channel.state == "BUSY":
+            # Aloha implementation
+            if self.channel.state == "IDLE":
+                yield env.timeout(packet.size/self.service_rate)
+            else:
+                attempt = 0
                 while self.channel.state == "BUSY":
-                    randPeriod = random.randint(1, 3)*2 #3x2T ? Don't really know what to choose
+                    attempt += 1
+                    randPeriod = random.random() * 2 #(K+1)/2 ? Don't really know what to choose
                     self.channel.remove_sender(self)
-                    yield env.timeout(randPeriod * packet.size/self.service_rate)
-            yield env.timeout(packet.size/self.service_rate)
+                    yield env.timeout(randPeriod * 400/self.channel.service_rate) #400 is the average lenght of the packets
             packet.output_timestamp = env.now
             if self.destination is not None:
                 if self.channel.state == "IDLE" and self.destination.busy is False:
@@ -320,7 +336,7 @@ class Channel(object):
                 self.state = "IDLE"
 
 if __name__ == "__main__":
-                # Link capacity 64kbps
+        # Link capacity 64kbps
         process_rate = 64000/8  # => 8 kBytes per second
         # Packet length exponentially distributed with average 400 bytes
         dist_size= lambda:expovariate(1/400)
@@ -352,3 +368,12 @@ if __name__ == "__main__":
                 env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True)
 
         env.run(until=1000)
+
+        latenciesMonitor = qs2_monitor.latenciesMonitor
+        # plt.plot(latenciesMonitor, "-", color="blue", linewidth=2.5, label="average latency")
+        # plt.xlabel("Time")
+        # plt.ylabel("Latency")
+        # plt.legend(loc="lower right", frameon=False)
+        # plt.title("Latency evolution over time")
+        # plt.show()
+        return latenciesMonitor
