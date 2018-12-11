@@ -380,11 +380,11 @@ if __name__ == "__main__":
         env = simpy.Environment()
 
         testOfDLatencies = []
-        for d in range(1, 14):
+        for d in np.linspace(0.5, 3.5, 11):
                 latencies = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d)
                 testOfDLatencies.append(latencies)
         
-        plt.plot(np.linspace(1, 13, 13), testOfDLatencies, '-o', color="blue", linewidth=2.5, label="average latency")
+        plt.plot(np.linspace(0.5, 3.5, 11), testOfDLatencies, '-o', color="blue", linewidth=2.5, label="average latency")
         plt.xlabel("d (Upper bound of random interval)")
         plt.ylabel("Latency (s)")
         plt.legend(loc="upper left", frameon=False)
