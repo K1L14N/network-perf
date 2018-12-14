@@ -235,15 +235,14 @@ class QueuedServer(object):
         while True:
             packet = yield self.buffer.get()
             self.busy = True
+            yield env.timeout(self.channel.synchronize(self.env.now, packet.size))
             self.channel.add_sender(self)
             # Aloha implementation
             if self.channel.state == "IDLE":
-                yield env.timeout(packet.size/self.service_rate)
+                yield env.timeout(packet.size/self.channel.service_rate)
             else:
-                attempt = 0
                 while self.channel.state == "BUSY":
-                    attempt += 1
-                    randPeriod = random.random() * self.d #(K+1)/2 ? Don't really know what to choose
+                    randPeriod = random.random() #(K+1)/2 ? Don't really know what to choose
                     self.channel.remove_sender(self)
                     yield env.timeout(randPeriod * 400/self.channel.service_rate) #400 is the average lenght of the packets
             packet.output_timestamp = env.now
@@ -316,6 +315,7 @@ class Channel(object):
         self.debug = debug
         self.sample_distribution = sample_distribution
         self.action = env.process(self.broadcast_collision())
+        self.timeSlot = 400/self.service_rate
 
     def add_sender(self, sender):
         # print("call add_sender")
@@ -337,7 +337,23 @@ class Channel(object):
             else:
                 self.state = "IDLE"
 
-def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d):
+    def synchronize(self, envnow, packetSize):
+        if envnow > self.timeSlot: # When the first packet arrive
+            slotsCounter = 1
+            copyEnvNow = envnow
+            slotsCounter += int((packetSize/self.service_rate)/self.timeSlot)
+            while copyEnvNow > self.timeSlot:
+                copyEnvNow -= self.timeSlot
+                slotsCounter += 1
+
+        #     print("fff: " + str(( slotsCounter) * self.timeSlot))
+        #     print("envnow: " + str(envnow))
+            return ( slotsCounter) * self.timeSlot - envnow
+        else: # If the router want to send packet before the first timeSlot, it is fine
+            return 0
+        
+
+def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d=1):
         
         src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
                         size_distribution=dist_size, debug=False)
@@ -369,6 +385,33 @@ def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d):
         latenciesMonitor = (latenciesMonitor1+latenciesMonitor2)/2
         return latenciesMonitor
 
+def alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2):
+        src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
+                        size_distribution=dist_size, debug=False)
+        src2 = Source(env, "Source 2", gen_distribution=gen_dist2,
+                        size_distribution=dist_size, debug=False)
+        # Create channel
+        ch = Channel(env, "Disney", process_rate, collision=True, state="IDLE", senders_list=[], debug=False)
+        qs1 = QueuedServer(env, "Router 1", ch, buffer_max_size=math.inf,
+                                service_rate=process_rate, debug=False)
+        qs2 = QueuedServer(env, "Router 2", ch, buffer_max_size=math.inf,
+                           service_rate=process_rate, debug=False)
+        # Link Source 1 to Router 1
+        src1.attach(qs1)
+        # Link Source 2 to Router 2
+        src2.attach(qs2)
+
+        
+        # Associate a monitor to Router 1
+        qs1_monitor = QueuedServerMonitor(
+                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
+        # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
+        qs2_monitor = QueuedServerMonitor(
+                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
+
+        env.run(until=1000)
+
+        
 if __name__ == "__main__":
         # Link capacity 64kbps
         process_rate = 64000/8  # => 8 kBytes per second
@@ -379,16 +422,19 @@ if __name__ == "__main__":
         gen_dist2= lambda:expovariate(7.5)  # 7.5 packets per second
         env = simpy.Environment()
 
-        testOfDLatencies = []
-        for d in np.linspace(0.5, 3.5, 11):
-                latencies = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d)
-                testOfDLatencies.append(latencies)
+        # alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env)
+
+        # Tests for pure Aloha
+        # testOfDLatencies = []
+        # for d in np.linspace(0.5, 3.5, 11):
+        #         latencies = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d)
+        #         testOfDLatencies.append(latencies)
         
-        plt.plot(np.linspace(0.5, 3.5, 11), testOfDLatencies, '-o', color="blue", linewidth=2.5, label="average latency")
-        plt.xlabel("d (Upper bound of random interval)")
-        plt.ylabel("Latency (s)")
-        plt.legend(loc="upper left", frameon=False)
-        plt.title("Evolution of latency according to upper bound of random interval")
-        plt.show()
+        # plt.plot(np.linspace(0.5, 3.5, 11), testOfDLatencies, '-o', color="blue", linewidth=2.5, label="average latency")
+        # plt.xlabel("d (Upper bound of random interval)")
+        # plt.ylabel("Latency (s)")
+        # plt.legend(loc="upper left", frameon=False)
+        # plt.title("Evolution of latency according to upper bound of random interval")
+        # plt.show()
 
-
+        alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2)
