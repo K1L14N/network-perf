@@ -64,7 +64,7 @@ class QueuedServerMonitor(object):
                 If set, displays the number of packet dropped by each queued_server
     """
 
-    def __init__(self, env, queued_server, sample_distribution=lambda: 1, count_bytes=False, debug_average_number = False, debug_latency = False, debug_dropped = False, d = 1):
+    def __init__(self, env, queued_server, sample_distribution=lambda: 1, count_bytes=False, debug_average_number = False, debug_latency = False, debug_dropped = False, d = 1, debug_throughput = False):
         self.env = env
         self.queued_server = queued_server
         self.sample_distribution = sample_distribution
@@ -74,9 +74,13 @@ class QueuedServerMonitor(object):
         self.debug_average_number = debug_average_number
         self.debug_latency = debug_latency
         self.debug_dropped = debug_dropped
+        self.debug_throughput = debug_throughput
         self.action = env.process(self.run())
         self.latenciesMonitor = []
+        self.average_packet_nb = 0
         self.d = d
+        self.throughput = []
+        self.rho = []
 
     def run(self):
         while True:
@@ -100,17 +104,24 @@ class QueuedServerMonitor(object):
                 
         
             if self.debug_average_number:
-                average_packet_nb = np.mean(self.sizes)
+                self.average_packet_nb = np.mean(self.sizes)
                 # print("Average packet number: " + str(average_packet_nb) + " | at time : " + str(self.time_count))
 
                 nb_packet_interval = st.t.interval(0.99, len(self.sizes)-1, loc=np.mean(self.sizes), scale=st.sem(self.sizes))
-                print('Average number of packets %f, interval(99): %s' %(average_packet_nb, nb_packet_interval))
+                print('Average number of packets %f, interval(99): %s' %(self.average_packet_nb, nb_packet_interval))
 
             # Print packet dropped by queued_server
             if self.debug_dropped:
                 print("Packets counted by " + str(self.queued_server.name) + ": " + str(self.queued_server.packet_count))
                 print("Packets dropped by " + str(self.queued_server.name) + ": " + str(self.queued_server.packets_drop))
                 print("Ratio transmit/total: " + str(int(100*(self.queued_server.packet_count-self.queued_server.packets_drop)/self.queued_server.packet_count)) + "%")
+            
+            if self.debug_throughput:
+                self.throughput.append(np.mean(self.queued_server.throughput))
+                print("Average throughput " + str(np.mean(self.throughput)) + " b/s")
+                self.rho.append(np.mean(self.queued_server.rho))
+                print("Average rho " + str(np.mean(self.rho)))
+            
             if self.time_count == 999*self.d:
                 print("THE ENDGAME")
                 # return self.latenciesMonitor
@@ -226,6 +237,8 @@ class QueuedServer(object):
         self.channel = channel
         self.latencies = []
         self.d = d
+        self.throughput = []
+        self.rho = []
         self.action = env.process(self.run())
 
     def run(self):
@@ -246,6 +259,10 @@ class QueuedServer(object):
                     self.channel.remove_sender(self)
                     yield env.timeout(randPeriod * 400/self.channel.service_rate) #400 is the average lenght of the packets
             packet.output_timestamp = env.now
+            latency = packet.output_timestamp - packet.generation_timestamp
+            self.throughput.append(8*packet.size/latency)
+            self.rho.append(7.5 * packet.size/self.channel.service_rate)
+
             if self.destination is not None:
                 if self.channel.state == "IDLE" and self.destination.busy is False:
                     self.destination.put(packet)
@@ -352,8 +369,8 @@ class Channel(object):
         else: # If the router want to send packet before the first timeSlot, it is fine
             return 0
         
-
-def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d=1):
+        
+def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d, l=1):
         
         src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
                         size_distribution=dist_size, debug=False)
@@ -373,17 +390,26 @@ def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d=1):
         
         # Associate a monitor to Router 1
         qs1_monitor = QueuedServerMonitor(
-                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False, d=d)
+                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=False, d=d, debug_throughput=True)
         # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
         qs2_monitor = QueuedServerMonitor(
-                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False, d=d)
+                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=False, d=d, debug_throughput=True)
 
-        env.run(until=300*d)
+        # env.run(until=300*d)
+        # env.run(until=300*l)
+        env.run(until=1000)
 
-        latenciesMonitor1 = qs1_monitor.latenciesMonitor[len(qs1_monitor.latenciesMonitor) - 1] #final latency of qs1_monitor
-        latenciesMonitor2 = qs2_monitor.latenciesMonitor[len(qs2_monitor.latenciesMonitor) - 1] #final latency of qs2_monitor
-        latenciesMonitor = (latenciesMonitor1+latenciesMonitor2)/2
-        return latenciesMonitor
+        # latenciesMonitor1 = qs1_monitor.latenciesMonitor[len(qs1_monitor.latenciesMonitor) - 1] #final latency of qs1_monitor
+        # latenciesMonitor2 = qs2_monitor.latenciesMonitor[len(qs2_monitor.latenciesMonitor) - 1] #final latency of qs2_monitor
+        # latenciesMonitor = (latenciesMonitor1+latenciesMonitor2)/2
+        
+        # averagePacketsMonitor = (qs1_monitor.average_packet_nb+qs2_monitor.average_packet_nb)/2
+        # return averagePacketsMonitor
+
+        throughput1 = qs1_monitor.throughput
+        rho1 = qs1_monitor.rho
+        return [throughput1, rho1]
+
 
 def alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2):
         src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
@@ -413,6 +439,9 @@ def alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2):
 
         
 if __name__ == "__main__":
+        ###########################
+        #### Init of variables ####
+        ###########################
         # Link capacity 64kbps
         process_rate = 64000/8  # => 8 kBytes per second
         # Packet length exponentially distributed with average 400 bytes
@@ -422,9 +451,15 @@ if __name__ == "__main__":
         gen_dist2= lambda:expovariate(7.5)  # 7.5 packets per second
         env = simpy.Environment()
 
-        # alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env)
 
-        # Tests for pure Aloha
+        #################################
+        #### Tests for slotted Aloha ####
+        #################################
+        alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2)
+
+        ##############################
+        #### Tests for pure Aloha ####
+        ##############################
         # testOfDLatencies = []
         # for d in np.linspace(0.5, 3.5, 11):
         #         latencies = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d)
@@ -437,4 +472,25 @@ if __name__ == "__main__":
         # plt.title("Evolution of latency according to upper bound of random interval")
         # plt.show()
 
-        alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2)
+        # testOfDLatencies = []
+        # averagePacketsNumber = []
+        # for l in np.linspace(3, 8, 5):
+        #         avg = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, 1.5)
+        #         averagePacketsNumber.append(avg)
+        
+        # plt.plot(np.linspace(3, 8, 5), averagePacketsNumber, '-o', color="blue", linewidth=2.5, label="average packet's number")
+        # plt.xlabel("d (Upper bound of random interval)")
+        # plt.ylabel("Average packet's number")
+        # plt.legend(loc="upper left", frameon=False)
+        # plt.title("Packet's number according to upper bound of random interval")
+        # plt.show()
+
+        # ans = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, 1.5)
+
+        # plt.plot(ans[1], ans[0], '+', color="red", linewidth=2.5)
+        # plt.xlabel("p (rho)")
+        # plt.ylabel("Throughput (b/s)")
+        # plt.legend(loc="upper left", frameon=False)
+        # plt.title("Throughput according to p")
+        # plt.show()
+
