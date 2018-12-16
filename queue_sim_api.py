@@ -122,10 +122,8 @@ class QueuedServerMonitor(object):
                 self.rho.append(np.mean(self.queued_server.rho))
                 print("Average rho " + str(np.mean(self.rho)))
             
-            if self.time_count == 999*self.d:
-                print("THE ENDGAME")
-                # return self.latenciesMonitor
-                # plt.plot(latenciesMonitor, "-", color="blue", linewidth=2.5, label="average latency")
+        #     if self.time_count == 299*self.d:
+                # plt.plot(self.latenciesMonitor, "-", color="blue", linewidth=2.5, label="average latency")
                 # plt.xlabel("Time")
                 # plt.ylabel("Latency")
                 # plt.legend(loc="lower right", frameon=False)
@@ -248,18 +246,19 @@ class QueuedServer(object):
         while True:
             packet = yield self.buffer.get()
             self.busy = True
-            yield env.timeout(self.channel.synchronize(self.env.now, packet.size))
+            synchroTime = self.channel.synchronize(self.env.now, packet.size)
+            yield env.timeout(synchroTime)
             self.channel.add_sender(self)
             # Aloha implementation
             if self.channel.state == "IDLE":
                 yield env.timeout(packet.size/self.channel.service_rate)
             else:
-                while self.channel.state == "BUSY":
-                    randPeriod = random.random() #(K+1)/2 ? Don't really know what to choose
-                    self.channel.remove_sender(self)
-                    yield env.timeout(randPeriod * 400/self.channel.service_rate) #400 is the average lenght of the packets
+                randPeriod = random.randint(1, 5) #number of slotTime
+                self.channel.remove_sender(self)
+                yield env.timeout(randPeriod * self.channel.timeSlot+0.001) #timeSlot of the channel (usually 0.05 but strange behavior with this value)
             packet.output_timestamp = env.now
             latency = packet.output_timestamp - packet.generation_timestamp
+
             self.throughput.append(8*packet.size/latency)
             self.rho.append(7.5 * packet.size/self.channel.service_rate)
 
@@ -430,13 +429,15 @@ def alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2):
         
         # Associate a monitor to Router 1
         qs1_monitor = QueuedServerMonitor(
-                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
+                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True, d=1, debug_throughput=True)
         # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
         qs2_monitor = QueuedServerMonitor(
-                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=False, debug_latency=True, debug_dropped=False)
+                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True, d=1, debug_throughput=True)
 
-        env.run(until=1000)
-
+        env.run(until=300)
+        throughput1 = qs1_monitor.throughput
+        rho1 = qs1_monitor.rho
+        return [throughput1, rho1]
         
 if __name__ == "__main__":
         ###########################
@@ -455,7 +456,7 @@ if __name__ == "__main__":
         #################################
         #### Tests for slotted Aloha ####
         #################################
-        alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2)
+        ans = alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2)
 
         ##############################
         #### Tests for pure Aloha ####
@@ -487,6 +488,7 @@ if __name__ == "__main__":
 
         # ans = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, 1.5)
 
+        # Display plot for throughput according to rho:
         # plt.plot(ans[1], ans[0], '+', color="red", linewidth=2.5)
         # plt.xlabel("p (rho)")
         # plt.ylabel("Throughput (b/s)")
