@@ -252,10 +252,15 @@ class QueuedServer(object):
             # Aloha implementation
             if self.channel.state == "IDLE":
                 yield env.timeout(packet.size/self.channel.service_rate)
-            else:
+            tryNumber = 0
+            while self.channel.state != "IDLE" and tryNumber < 10:
                 randPeriod = random.randint(1, 5) #number of slotTime
                 self.channel.remove_sender(self)
                 yield env.timeout(randPeriod * self.channel.timeSlot+0.001) #timeSlot of the channel (usually 0.05 but strange behavior with this value)
+                tryNumber += 1
+            
+            if tryNumber == 10: self.packets_drop += 1
+                    
             packet.output_timestamp = env.now
             latency = packet.output_timestamp - packet.generation_timestamp
 
@@ -370,7 +375,7 @@ class Channel(object):
         
         
 def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d, l=1):
-        
+        random.seed(42)
         src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
                         size_distribution=dist_size, debug=False)
         src2 = Source(env, "Source 2", gen_distribution=gen_dist2,
@@ -411,6 +416,7 @@ def alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, d, l=1):
 
 
 def alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2):
+        random.seed(42)
         src1 = Source(env, "Source 1", gen_distribution=gen_dist1,
                         size_distribution=dist_size, debug=False)
         src2 = Source(env, "Source 2", gen_distribution=gen_dist2,
