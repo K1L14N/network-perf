@@ -254,9 +254,9 @@ class QueuedServer(object):
                 yield env.timeout(packet.size/self.channel.service_rate)
             tryNumber = 0
             while self.channel.state != "IDLE" and tryNumber < 10:
-                randPeriod = random.randint(1, 5) #number of slotTime
+                randPeriod = random.randint(1, 3) #number of slotTime
                 self.channel.remove_sender(self)
-                yield env.timeout(randPeriod * self.channel.timeSlot+0.001) #timeSlot of the channel (usually 0.05 but strange behavior with this value)
+                yield env.timeout(randPeriod * self.channel.timeSlot) #timeSlot of the channel (usually 0.05 but strange behavior with this value)
                 tryNumber += 1
             
             if tryNumber == 10: self.packets_drop += 1
@@ -435,10 +435,10 @@ def alohaSlotted(env, process_rate, dist_size, gen_dist1, gen_dist2):
         
         # Associate a monitor to Router 1
         qs1_monitor = QueuedServerMonitor(
-                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True, d=1, debug_throughput=True)
+                env, qs1, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=False, d=1, debug_throughput=True)
         # Create another monitor that will display the latency of each packet received by qs2 (given by qs1)
         qs2_monitor = QueuedServerMonitor(
-                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=True, debug_dropped=True, d=1, debug_throughput=True)
+                env, qs2, sample_distribution=lambda: 1, count_bytes=False, debug_average_number=True, debug_latency=False, debug_dropped=False, d=1, debug_throughput=True)
 
         env.run(until=300)
         throughput1 = qs1_monitor.throughput
@@ -494,7 +494,7 @@ if __name__ == "__main__":
 
         # ans = alohaPure(process_rate, dist_size, gen_dist1, gen_dist2, env, 1.5)
 
-        # Display plot for throughput according to rho:
+        # # Display plot for throughput according to rho:
         # plt.plot(ans[1], ans[0], '+', color="red", linewidth=2.5)
         # plt.xlabel("p (rho)")
         # plt.ylabel("Throughput (b/s)")
